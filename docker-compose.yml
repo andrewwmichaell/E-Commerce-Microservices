@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  # Databases
+  mysql:
+    image: mysql:8.0
+    container_name: ecommerce-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: productdb
+      MYSQL_USER: productuser
+      MYSQL_PASSWORD: productpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  postgresql:
+    image: postgres:13
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: authuser
+      POSTGRES_PASSWORD: authpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  postgresql-order:
+    image: postgres:13
+    container_name: ecommerce-postgres-order
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: orderuser
+      POSTGRES_PASSWORD: orderpass
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_order_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ecommerce-sqlserver
+    environment:
+      SA_PASSWORD: PaymentPass123!
+      ACCEPT_EULA: Y
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+  # Java Services
+  discovery-service:
+    build: ./discovery-service
+    container_name: ecommerce-discovery
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: ecommerce-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+    depends_on:
+      - discovery-service
+
+  auth-service:
+    build: ./auth-service
+    container_name: ecommerce-auth
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql:5432/authdb
+      - SPRING_DATASOURCE_USERNAME=authuser
+      - SPRING_DATASOURCE_PASSWORD=authpass
+    depends_on:
+      - discovery-service
+      - postgresql
+
+  product-service:
+    build: ./product-service
+    container_name: ecommerce-product
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/productdb
+      - SPRING_DATASOURCE_USERNAME=productuser
+      - SPRING_DATASOURCE_PASSWORD=productpass
+    depends_on:
+      - discovery-service
+      - mysql
+
+  order-service:
+    build: ./order-service
+    container_name: ecommerce-order
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql-order:5432/orderdb
+      - SPRING_DATASOURCE_USERNAME=orderuser
+      - SPRING_DATASOURCE_PASSWORD=orderpass
+    depends_on:
+      - discovery-service
+      - postgresql-order
+
+  # .NET Services
+  cart-service:
+    build: ./cart-service
+    container_name: ecommerce-cart
+    ports:
+      - "5001:5001"
+    environment:
+      - Redis__ConnectionString=redis:6379
+      - Eureka__Client__ServiceUrl__DefaultZone=http://discovery-service:8761/eureka
+    depends_on:
+      - discovery-service
+      - redis
+
+  payment-service:
+    build: ./payment-service
+    container_name: ecommerce-payment
+    ports:
+      - "5002:5002"
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=PaymentDb;User Id=sa;Password=PaymentPass123!;TrustServerCertificate=true;
+      - Eureka__Client__ServiceUrl__DefaultZone=http://discovery-service:8761/eureka
+    depends_on:
+      - discovery-service
+      - sqlserver
+
+  # Frontend
+  frontend:
+    build: ./frontend
+    container_name: ecommerce-frontend
+    ports:
+      - "4200:4200"
+    depends_on:
+      - api-gateway
+
+volumes:
+  mysql_data:
+  postgres_data:
+  postgres_order_data:
+  redis_data:
+  sqlserver_data:
